@@ -22,7 +22,7 @@ clf=GMSDB(min_components=2,step_components=100,n_components=900,rand_search=1000
 
 Complex use (with custom significance level alpha=0.15):
 
-clf=gmsdb.GMSDB(n_components=50,alpha_stage2=0.15,alpha_stage4=0.15)
+clf=GMSDB(n_components=50,alpha_stage2=0.15,alpha_stage4=0.15)
 
 Verbose use (show debug information):
 
