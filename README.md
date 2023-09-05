@@ -1,16 +1,19 @@
 GMSDB Clusterer
 
-Run:
+Run for simple test:
+
  python GMSDB.py
-for simple test
 
 
 Simple use (sklearn -like style), no speed improvement, standard significance level alpha=0.05. 
 Maximal number of gaussian components=50:
 
 from GMSDB import GMSDB
+
 clf=GMSDB(n_components=50)
+
 clf.fit(X)
+
 Y=clf.predict(X)
 
 Complex use (with speed improvement for stages 1 and 3):
