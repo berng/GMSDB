@@ -28,4 +28,11 @@ Verbose use (show debug information):
 
 clf=GMSDB(n_components=50,verbose=True)
 
+# Install with pip
+You could install it from PyPI:
 
+pip install gmsdb
+
+Import:
+
+from gmsdb import GMSDB
