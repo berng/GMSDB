@@ -37,14 +37,20 @@ def getMahalanobisMatrix(X,gm,alpha=0.05,show=False,N=-1):
   for j in range(gm.n_components):
 #   print('process ',i,j,end=' ')
    
-   pd_ij = pairwise_distances(X[Y==i][:N],X[Y==j][:N],metric='mahalanobis',VI=inv(cov[j]))
-   pd_ij=pd_ij.reshape(pd_ij.shape[0]*pd_ij.shape[1])
-   pd_ji = pairwise_distances(X[Y==j][:N],X[Y==i][:N],metric='mahalanobis',VI=inv(cov[i]))
-   pd_ji=pd_ji.reshape(pd_ji.shape[0]*pd_ji.shape[1])
-   pd_ii = pairwise_distances(X[Y==i][:N],X[Y==i][:N],metric='mahalanobis',VI=inv(cov[i]))
-   pd_ii=pd_ii.reshape(pd_ii.shape[0]*pd_ii.shape[1])
-   pd_jj = pairwise_distances(X[Y==j][:N],X[Y==j][:N],metric='mahalanobis',VI=inv(cov[j]))
-   pd_jj=pd_jj.reshape(pd_jj.shape[0]*pd_jj.shape[1])
+
+   if X[Y==i].shape[0]>2 and X[Y==j].shape[0]>2:
+    pd_ij = pairwise_distances(X[Y==i][:N],X[Y==j][:N],metric='mahalanobis',VI=inv(cov[j]))
+    pd_ij=pd_ij.reshape(pd_ij.shape[0]*pd_ij.shape[1])
+    pd_ji = pairwise_distances(X[Y==j][:N],X[Y==i][:N],metric='mahalanobis',VI=inv(cov[i]))
+    pd_ji=pd_ji.reshape(pd_ji.shape[0]*pd_ji.shape[1])
+   if X[Y==i].shape[0]>2 and X[Y==i].shape[0]>2:
+    pd_ii = pairwise_distances(X[Y==i][:N],X[Y==i][:N],metric='mahalanobis',VI=inv(cov[i]))
+    pd_ii=pd_ii.reshape(pd_ii.shape[0]*pd_ii.shape[1])
+   if X[Y==j].shape[0]>2 and X[Y==j].shape[0]>2:
+    pd_jj = pairwise_distances(X[Y==j][:N],X[Y==j][:N],metric='mahalanobis',VI=inv(cov[j]))
+    pd_jj=pd_jj.reshape(pd_jj.shape[0]*pd_jj.shape[1])
+
+
    cond=np.where(np.isnan(pd_ii),False,True)
    pd_ii=pd_ii[cond]
    cond=np.where(np.isnan(pd_jj),False,True)
@@ -97,10 +103,15 @@ def getMahalanobisMatrix(X,gm,alpha=0.05,show=False,N=-1):
 
 
 def ConfiDistance(MatrixClustersAll,gm=False,X=np.zeros(0),eps=1.,show=False,fname='tmp.png',\
-           MaxTestSize=1000,border_percentile=0.001,alpha=0.05,beta=0.5,bh_mh_correct=False):
+           MaxTestSize=1000,border_percentile=0.001,alpha=0.05,beta=0.5,bh_mh_correct=False,dim=2):
+   if alpha<0:
+    alpha=1/MatrixClustersAll.shape[0]
+#    print('ALPHA:',alpha)
    PERECENTILE=50   # border for maximal distance, 50% = median
-   BORDER=ss.norm().ppf(1.-alpha*beta)
-#   print('BORDER:',BORDER)
+#   BORDER=ss.norm().ppf(1.-alpha/2.)
+#   BORDER=ss.rayleigh().ppf(1.-alpha)
+   BORDER=np.sqrt(ss.chi2(df=dim).ppf(1.-alpha)*2)
+#   print('BORDER:',BORDER,' DIM:',dim)
 #   quit()
    MC=MatrixClustersAll.copy()
 #   if show:
@@ -129,8 +140,12 @@ def ConfiDistance(MatrixClustersAll,gm=False,X=np.zeros(0),eps=1.,show=False,fna
    if show:
     print('tot:',total_superclusters)
 
-   ISCmin2=ISCmin/np.diag(ISCmin)
-#   ISCmin2-=1.
+# do not use normalization to diagonal   
+#   ISCmin2=ISCmin/np.diag(ISCmin)
+#   print('DIAG:',np.diag(ISCmin))
+#   print('BORDER:',BORDER)
+   ISCmin2=ISCmin
+
    if not bh_mh_correct:
     np.fill_diagonal(ISCmin2,1e100)
     distA=ISCmin2.min(axis=1)
@@ -265,7 +280,7 @@ class GMSDB():
 
      MatrixTmp=Matrix.copy() #self.getMatrix(X,clusters)
      cdist,labels=ConfiDistance(MatrixTmp,self.gm,X,eps=eps,show=self.verbose,fname='img/'+str(eps_itt)+'.png',\
-                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct)
+                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
      if 1>=cdist>=0.:
        eps_checked[eps_itt]=cdist
      elif cdist<=0.:
@@ -311,7 +326,7 @@ class GMSDB():
     for subitt in range(self.SUBITT):
      MatrixTmp=Matrix.copy() #self.getMatrix(X,clusters)
      cdist,labels=ConfiDistance(MatrixTmp,self.gm,X,eps=eps,show=self.verbose,fname='img/'+str(eps_itt)+'.png',\
-                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct)
+                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
 
      if self.show_clusters:
       print('showing cluster...', eps_itt)
@@ -392,6 +407,7 @@ class GMSDB():
  def fit(self,X0,show_closest=False,plot_decisions=False):
   ss=StandardScaler()
   X=ss.fit_transform(X0)
+  self.MH_dim=X0.shape[1]
   self.ss=ss
   best_bic=1e100
   best_C=-1
@@ -428,6 +444,8 @@ class GMSDB():
      print("C:",C,'bic:',self.bics[C],flush=True)
    if(mystep>1):
     mymin=best_C-mystep-1
+    if mymin<=2:
+     mymin=2
     mymax=best_C+mystep
     if mystep>5:
      mystep=mystep//5
@@ -573,4 +591,3 @@ if __name__=='__main__':
  Yp=clf.predict_proba(X)
  print(Yp[:10,:])
  quit()
-
