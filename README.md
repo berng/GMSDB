@@ -5,7 +5,7 @@ Run for simple test:
  python GMSDB.py
 
 
-## Simple use (sklearn -like style), no speed improvement, standard significance level alpha=0.05. 
+## Simple use (sklearn -like style), no speed improvement, default significance level alpha=0.1. 
 Maximal number of gaussian components=50:
 
 from GMSDB import GMSDB
