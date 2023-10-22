@@ -192,7 +192,7 @@ def ConfiDistance(MatrixClustersAll,gm=False,X=np.zeros(0),eps=1.,show=False,fna
 
 class GMSDB():
  def __init__(self,min_components=2,step_components=1,n_components=2,verbose=False,show=False,metric='LH',\
-               border_percentile=0.001,alpha_stage2=0.05,alpha_stage4=0.05,show_mah=False, \
+               border_percentile=0.001,alpha_stage2=0.05,alpha_stage4=0.1,show_mah=False, \
                show_clusters=False,autostop=True,bh_mh_correct=False,rand_search=0,rand_level=0.5):
 # ==== input parameters
 # 1.Basic parameters:
