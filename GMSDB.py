@@ -1,3 +1,4 @@
+## @package gmsdb_v2.1
 # Made under GNU GPL v3.0
 # by Oleg I.Berngardt, 2023
 # This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as 
@@ -26,6 +27,13 @@ from numpy.linalg import inv
 from statsmodels.stats.multitest import multipletests
 
 def getMahalanobisMatrix(X,gm,alpha=0.05,show=False,N=-1):
+ '''! Calculates $p_{ij}$ matrix of Mahalanobis intercluster distances using given significance level alpha
+   @param X - source dataset
+   @param gm - trained GaussianMixture  class
+   @param alpha significance level (recommended default value 0.05)
+   @param show Debug flag, shows distributions of p_{ij} and p_{ii} into img/ folder.  Default False
+   @param N - limits processing large datasets, use default -1
+ '''
  percent=int(alpha*100)
 # N=-1
  Y=gm.predict(X)
@@ -33,10 +41,14 @@ def getMahalanobisMatrix(X,gm,alpha=0.05,show=False,N=-1):
 # print(cov.shape)
  DD=np.zeros((gm.n_components,gm.n_components))
  DN=np.zeros((gm.n_components,gm.n_components))
+ pd_ii=np.zeros((1,1))
+ pd_jj=np.zeros((1,1))
+ pd_ij=np.zeros((1,1))
+ pd_ji=np.zeros((1,1))
  for i in range(gm.n_components):
   for j in range(gm.n_components):
 #   print('process ',i,j,end=' ')
-   
+
 
    if X[Y==i].shape[0]>2 and X[Y==j].shape[0]>2:
     pd_ij = pairwise_distances(X[Y==i][:N],X[Y==j][:N],metric='mahalanobis',VI=inv(cov[j]))
@@ -102,22 +114,40 @@ def getMahalanobisMatrix(X,gm,alpha=0.05,show=False,N=-1):
 
 
 
-def ConfiDistance(MatrixClustersAll,gm=False,X=np.zeros(0),eps=1.,show=False,fname='tmp.png',\
-           MaxTestSize=1000,border_percentile=0.001,alpha=0.05,beta=0.5,bh_mh_correct=False,dim=2):
-   if alpha<0:
-    alpha=1/MatrixClustersAll.shape[0]
-#    print('ALPHA:',alpha)
-   PERECENTILE=50   # border for maximal distance, 50% = median
-#   BORDER=ss.norm().ppf(1.-alpha/2.)
-#   BORDER=ss.rayleigh().ppf(1.-alpha)
+def ConfiDistance(MatrixClustersAll,gm=False, eps=1.,show=False,\
+           alpha=0.1,bh_mh_correct=False,dim=2):
+   '''! Joins clusters into superclusters using DBSCAN and calculates MC quality index
+    @param MatrixClustersAll - source Mahalanobis distance matrix of clusters
+    @param gm - trained GaussianMixture  class (not used)
+    @param eps - hyperparameter for DBSCAN
+    @param show Debug flag, print debug information.  Default False
+    @param alpha significance level (recommended default value 0.1)
+
+    @param X - not used
+    @param fname not used
+    @param MaxTestSize - not used
+    @param border_percentile - not used
+    @param beta - not used
+
+    @param bh_mh_correct - correct distances using Benjamini-Hochberg method, default False
+    @param dim - dimension of source data
+   '''
+
    BORDER=np.sqrt(ss.chi2(df=dim).ppf(1.-alpha)*2)
-#   print('BORDER:',BORDER,' DIM:',dim)
-#   quit()
    MC=MatrixClustersAll.copy()
-#   if show:
-#    print('MCA:\n',MatrixClustersAll)
    for i in range(MC.shape[0]):
     MC[i,i]=0.
+
+#  ======== Correct by Benjamini-Hochberg
+   if bh_mh_correct:
+    pvals=1-ss.chi2(df=dim).cdf(MC.reshape(MC.shape[0]*MC.shape[1])**2/2)
+    rej,p_corr,a1,a2=multipletests(pvals,alpha=alpha,method='fdr_bh')
+    eeps=1e-10
+    MC=np.sqrt(ss.chi2(df=dim).ppf(np.abs(1.-p_corr-eeps))*2).reshape(MC.shape[0],MC.shape[1])
+    for i in range(MC.shape[0]):
+     MC[i,i]=0.
+#  ======================================
+
    idx,labels_superclusters=dbscan(MC, metric='precomputed', eps=eps,min_samples=1)
 
    total_superclusters=len(set(list(labels_superclusters)))
@@ -134,111 +164,108 @@ def ConfiDistance(MatrixClustersAll,gm=False,X=np.zeros(0),eps=1.,show=False,fna
      np.fill_diagonal(MC,1e100)
      ISCmin[i_scl,j_scl]=(MC[index_i,:][:,index_j]).min()
     index_i=labels_superclusters==i_scl
-#    ISCmin[i_scl,i_scl]=max((MatrixClustersAll[index_i,:][:,index_i]).min(),ISCmin[i_scl,:].min())
-#   ISCmin[i_scl,i_scl]=min((MatrixClustersAll[index_i,:][:,index_i]).min(),ISCmin[i_scl,:].min())
     ISCmin[i_scl,i_scl]=np.diag(MatrixClustersAll)[index_i].min()
    if show:
     print('tot:',total_superclusters)
 
-# do not use normalization to diagonal   
-#   ISCmin2=ISCmin/np.diag(ISCmin)
-#   print('DIAG:',np.diag(ISCmin))
-#   print('BORDER:',BORDER)
    ISCmin2=ISCmin
 
-   if not bh_mh_correct:
-    np.fill_diagonal(ISCmin2,1e100)
-    distA=ISCmin2.min(axis=1)
-    dist=distA[distA>BORDER].shape[0]/distA.shape[0]
-   else:
-    pvals_arr=(1.-ss.norm.cdf(ISCmin2))*2.
-    np.fill_diagonal(pvals_arr,1.0)
-    rej,pvals_arr_corr,a,b=multipletests(pvals_arr.reshape(pvals_arr.shape[0]*pvals_arr.shape[1]),alpha=alpha,method='fdr_bh')
-    pvals_arr_corr=pvals_arr_corr.reshape(pvals_arr.shape[0],pvals_arr.shape[1])
-    np.fill_diagonal(pvals_arr_corr,0.0)
-    distB=pvals_arr_corr.max(axis=1)
-    dist=distB[distB<alpha].shape[0]/distB.shape[0]
+   np.fill_diagonal(ISCmin2,1e100)
+   distA=ISCmin2.min(axis=1)
+   dist=distA[distA>BORDER].shape[0]/distA.shape[0]
 
    if show:
-#    print('ISCmin:\n',np.round(ISCmin2,1))
     print('dist:\n',dist)
-#   print('mydist:',dist)
    return dist,labels_superclusters
-#   quit()
 
-## Calc modified Silhouette
-   b_i=np.ones(total_superclusters)*1e100
-   a_i=np.ones(total_superclusters)*0
-   for i_scl in range(total_superclusters):
-    Sil_i=[]
-    for j_scl in range(total_superclusters):
-     if i_scl!=j_scl:
-      if ISCmin[i_scl,j_scl]<b_i[i_scl]:
-       b_i[i_scl]=ISCmin[i_scl,j_scl]
-    a_i[i_scl]=ISCmin[i_scl,i_scl]
-
-   if show:
-    print('ai,bi:\n',a_i,'\n',b_i)
-   sil_i=b_i/a_i			# modified silhouette (not normalized)
-#   sil_i=(b_i-a_i)/np.maximum(b_i,a_i)	# original silhouette
-   if show:
-    print('======sil_i',sil_i,sil_i.min(),sil_i.max(),sil_i.std())
-
-#   old_labels_superclusters[hash_list]=sil_i.min()
-
-#   return sil_i.min(),labels_superclusters
-#   return sil_i.min()*total_superclusters,labels_superclusters
-   return sil_i.min(),labels_superclusters
 
 class GMSDB():
  def __init__(self,min_components=2,step_components=1,n_components=2,verbose=False,show=False,metric='LH',\
                border_percentile=0.001,alpha_stage2=0.05,alpha_stage4=0.1,show_mah=False, \
-               show_clusters=False,autostop=True,bh_mh_correct=False,rand_search=0,rand_level=0.5):
+               show_clusters=False,autostop=True,bh_mh_correct=False,rand_search=0,rand_level=0.5, max_iter=200):
+  '''! Init class 
+    @param n_components maximal number of gaussian clusters, the more - the slower the stage 1.
+						I use 100 for simple cases (dot examples), 
+						and 1000 with speed up search paramters (below: 2,100,1000,0.5) for complex cases (image examples)
+    @param alpha_stage2 significance level for stage 2. Recommended standard value 0.05
+    @param alpha_stage4 significance level for stage 4. Recommended value 0.1
+    @param min_components minimal number of gaussian clusters (stage 1), in most cases use 2
+    @param step_components fast algorithm parameter for BIC search (stage 1). 
+						Recommended values: 100 (if n_components>=1000); 
+                                                                     20 if 100<n_components<1000; 
+                                                                     or 1 if n_components<50
+    @param rand_search set to 0 if do not want to speed up search at stage 3-4. 
+						Set to 1000 or more to speed up the search at stage 3-4. 
+                                                Not recommended to set more than n_components
+    @param rand_level Autostop random search when MC reaches this value (stage 3 speed optimization). 
+						Then algorithm uses sequental search. 
+						In most cases default value 0.5 is a good variant
+    @param max_iter Used for limit GM itterations. Default 200
+    @param verbose use for debug outputs
+    @param show use for producing debug images
+    @param show_mah use for debug Mahalanobis distance
+    @param show_clusters use for producing debug images to show clusters
+    @param bh_mh_correct use for multiple hypothesis correcting. Default False
+    @param autostop use for stopping when reaching MC==1. Set to False for debug only purposes
+
+    @return  built-in parameters
+    @param ss Trained input standard scaler
+    @param gm BIC-optimal gaussian classifier
+    @param labels found correspondence between gaussian clusters and supercluster numbers
+    @param best_cluster_num found number of superclusters
+    @param opt_bic found number of bic-optimal clusters
+
+  '''
 # ==== input parameters
 # 1.Basic parameters:
-  self.n_components=n_components               	# maximal number of gaussian clusters, the more - the slower the stage 1.
-						# I use 100 for simple cases (dot examples), 
-						# and 1000 with speed up search paramters (below: 2,100,1000,0.5) for complex cases (image examples)
-  self.alpha_stage2=alpha_stage2		# significance level for stage 2. Recommended standard value 0.05
-  self.alpha_stage4=alpha_stage4		# significance level for stage 4. Recommended standard value 0.05
+  self.n_components=n_components               	## @param n_components maximal number of gaussian clusters, the more - the slower the stage 1.
+						## I use 100 for simple cases (dot examples), 
+						## and 1000 with speed up search paramters (below: 2,100,1000,0.5) for complex cases (image examples)
 
+  self.alpha_stage2=alpha_stage2		## @param alpha_stage2 significance level for stage 2. Recommended standard value 0.05
+  self.alpha_stage4=alpha_stage4		## @param alpha_stage4 significance level for stage 4. Recommended value 0.1
+  self.bh_mh_correct=bh_mh_correct		## @param bh_mh_correct use for multiple hypothesis correcting. Default False
+
+#
 # 2.Speed up search parameters:
-  self.min_components=min_components           	# minimal number of gaussian clusters (stage 1), in most cases use 2
-  self.step_components=step_components	       	# fast algorithm parameter for BIC search (stage 1). 
-						# Recommended values: 100 (if n_components>=1000); 
-                                                #                     20 if 100<n_components<1000; 
-                                                #                     or 1 if n_components<50
-  self.rand_search=rand_search			# set to 0 if do not want to speed up search at stage 3-4. 
-						# Set to 1000 or more to speed up the search at stage 3-4. 
-                                                # Not recommended to set more than n_components
-  self.rand_level=rand_level			# Autostop random search when MC reaches this value (stage 3 speed optimization). 
-						# Then algorithm uses sequental search. 
-						# In most cases default value 0.5 is a good variant
+  self.min_components=min_components           	## @param min_components minimal number of gaussian clusters (stage 1), in most cases use 2
+  self.step_components=step_components	       	## @param step_components fast algorithm parameter for BIC search (stage 1). 
+						## Recommended values: 100 (if n_components>=1000); 
+                                                ##                     20 if 100<n_components<1000; 
+                                                ##                     or 1 if n_components<50
+  self.rand_search=rand_search			## @param rand_search set to 0 if do not want to speed up search at stage 3-4. 
+						## Set to 1000 or more to speed up the search at stage 3-4. 
+                                                ## Not recommended to set more than n_components
+  self.rand_level=rand_level			## @param rand_level Autostop random search when MC reaches this value (stage 3 speed optimization). 
+						## Then algorithm uses sequental search. 
+						## In most cases default value 0.5 is a good variant
+  self.max_iter=max_iter			## @param max_iter Used for limit GM itterations. Default 200
 
 # 3.Debug only keys
-  self.SUBITT=1					# used, when one wants to make several itterations with the same eps. Used with show flag for studies of algorithm
-  self.verbose=verbose			       	# use for debug outputs
-  self.show=show				# use for producing debug images
-  self.show_mah=show_mah			# use for debug Mahalanobis distance
-  self.show_clusters=show_clusters		# use for producing debug images to show clusters
-  self.bh_mh_correct=bh_mh_correct		# use for multiple hypothesis correcting. Not recommended to use
-  self.autostop=autostop			# use for stopping when reaching MC==1. Set to False for debug only purposes
+  self.SUBITT=1					## used, when one wants to make several itterations with the same eps. Used with show flag for studies of algorithm
+  self.verbose=verbose			       	## @param verbose use for debug outputs
+  self.show=show				## @param show use for producing debug images
+  self.show_mah=show_mah			## @param show_mah use for debug Mahalanobis distance
+  self.show_clusters=show_clusters		## @param show_clusters use for producing debug images to show clusters
+  self.autostop=autostop			## @param autostop use for stopping when reaching MC==1. Set to False for debug only purposes
 
 # 4.not used keys
-  self.metric=metric				# not used, historical code
-  self.border_percentile=border_percentile	# not used, historical code
-  self.ZeroDistance=0.001			# not used, historical code
+  self.metric=metric				## not used, historical code
+  self.border_percentile=border_percentile	## not used, historical code
+  self.ZeroDistance=0.001			## not used, historical code
 
 # ==== Temporary paramters of the algorithm
-  self.bics=np.ones(n_components)*1e100
+  self.bics=np.ones(n_components*2)*1e100
   self.gms={}
-  self.lower_bound_=0				# for suport sklearn, always 0 
+  self.lower_bound_=0				## for suport sklearn, always 0 
 
-# ==== Output parameters
-  self.ss=False					# Trained input standard scaler
-  self.gm=False					# BIC-optimal gaussian classifier
-  self.labels=[]				# found correspondence between gaussian clusters and supercluster numbers
-  self.best_cluster_num=0			# found number of superclusters
+# ==== Output parameters @return
+  self.ss=False					##  @param ss Trained input standard scaler
+  self.gm=False					##  @param gm BIC-optimal gaussian classifier
+  self.labels=[]				##  @param labels found correspondence between gaussian clusters and supercluster numbers
+  self.best_cluster_num=0			##  @param best_cluster_num found number of superclusters
+  self.opt_bics=0				##  @param opt_bic found number of bic-optimal clusters
+
 
  def getMatrix(self,X,clusters,fname=''):
   return getMahalanobisMatrix(X,self.gm,alpha=self.alpha_stage2,show=self.show_mah)
@@ -257,8 +284,7 @@ class GMSDB():
   eps_history={}
   optimals=[]
   tot_cl=100
-#  self.rand_search=10
-#  self.rand_search=False
+
   search_idx=np.array(range(eps_np_mid.shape[0]))
   if self.rand_search>0:
    np.random.shuffle(search_idx)
@@ -272,15 +298,13 @@ class GMSDB():
    for eps_itt in search_idx[:self.rand_search]:
      eps=eps_np_mid[eps_itt]
      if eps <eps_supermax:
-       print('.',end='',flush=True)
        continue
      if eps >eps_supermin:
-       print('.',end='',flush=True)
        continue
 
      MatrixTmp=Matrix.copy() #self.getMatrix(X,clusters)
-     cdist,labels=ConfiDistance(MatrixTmp,self.gm,X,eps=eps,show=self.verbose,fname='img/'+str(eps_itt)+'.png',\
-                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
+     cdist,labels=ConfiDistance(MatrixTmp,self.gm,eps=eps,show=self.verbose,\
+                      alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
      if 1>=cdist>=0.:
        eps_checked[eps_itt]=cdist
      elif cdist<=0.:
@@ -322,11 +346,10 @@ class GMSDB():
     if eps>eps_supermin:
       continue
 
-#    eps_checked[eps_itt]=True
     for subitt in range(self.SUBITT):
      MatrixTmp=Matrix.copy() #self.getMatrix(X,clusters)
-     cdist,labels=ConfiDistance(MatrixTmp,self.gm,X,eps=eps,show=self.verbose,fname='img/'+str(eps_itt)+'.png',\
-                       border_percentile=self.border_percentile,alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
+     cdist,labels=ConfiDistance(MatrixTmp,self.gm,eps=eps,show=self.verbose,\
+                       alpha=self.alpha_stage4,bh_mh_correct=self.bh_mh_correct,dim=self.MH_dim)
 
      if self.show_clusters:
       print('showing cluster...', eps_itt)
@@ -337,19 +360,13 @@ class GMSDB():
 
      tot_cl=len(set(list(labels)))
 
-#     if self.verbose:
-#      print('before inc:',len(checked_indexes),checked_indexes)
      if tot_cl in checked_indexes:
       checked_indexes[tot_cl]+=1
       if tot_cl>1:
        checked_indexes[1]=0
 
-#     if self.verbose:
-#      print('after inc:',len(checked_indexes),checked_indexes)
      eps_history[eps]={'classes':tot_cl,'labels':labels,'cdist':cdist}
 
-#     quit()
-#     if self.save_json:
      if self.verbose:
       with open('checked_indexes.json','wb') as f:
        pickle.dump(checked_indexes,f)
@@ -399,14 +416,25 @@ class GMSDB():
 
   if self.verbose:
    print('============== Unpredicted return ! ==========',cdist_opt,self.best_cluster_num,self.labels,eps_supermax,eps_supermin,flush=True)
-#   for eid in eps_checked.keys():
-#    print(eid,eps_np_mid[eid],eps_checked[eid],file=sys.stderr)
   return self.best_cluster_num,self.labels
 
 
- def fit(self,X0,show_closest=False,plot_decisions=False):
+ def fit(self,X0,show_closest=False,plot_decisions=False,max_bic_search_size=-1):
+  # show_closest=False - show 2 clusters closesest to given. Debug option
+  # plot_decisions=False  - plot decision regions when fitting. Debug option
+  # max_bic_search_size=-1 - if >0 use for bic search stage (stage1) shorter dataset to provide faster search. Debug option  
   ss=StandardScaler()
   X=ss.fit_transform(X0)
+  if max_bic_search_size>0:
+   if max_bic_search_size<=1:
+    max_bic_search_size=int(X0.shape[0]*max_bic_search_size)
+#  print('max bic search:',max_bic_search_size)
+  if max_bic_search_size>0:
+   idx=np.array(range(X.shape[0]))
+   np.random.shuffle(idx)
+   Xbic=X[idx[:max_bic_search_size]]
+  else:
+   Xbic=X
   self.MH_dim=X0.shape[1]
   self.ss=ss
   best_bic=1e100
@@ -418,13 +446,20 @@ class GMSDB():
    for C in range(mymin,mymax,mystep):
 
     if not C in self.gms:
-     gm=GaussianMixture(n_components=C)
-     gm.fit(X)
+     gm=GaussianMixture(n_components=C,max_iter=self.max_iter)
+     gm.fit(Xbic)
     else:
      gm=self.gms[C]
 
-    yp=gm.predict(X)
-    self.bics[C]=gm.bic(X)
+    yp=gm.predict(Xbic)
+    top_bic=[]
+    for i in range(100):
+     idx3=np.random.randint(0,Xbic.shape[0]-1,Xbic.shape[0])
+     top_bic.append(gm.bic(Xbic[idx3]))
+    top_bic=np.array(top_bic)
+    self.bics[C]=top_bic.mean()+1.96*top_bic.std()
+
+#    self.bics[C]=gm.bic(Xbic)
     self.gms[C]=gm
 
     if self.bics[C]<best_bic:
@@ -436,7 +471,7 @@ class GMSDB():
       if plot_decisions:
        pp.figure()
 #       pp.scatter(X[:,0],X[:,1],c=yp)
-       plot_decision_regions(X,yp,clf=self.gm)
+       plot_decision_regions(Xbic,yp,clf=self.gm)
        pp.savefig('bicfile.png')
        pp.close()
 
@@ -458,18 +493,8 @@ class GMSDB():
   self.opt_bics=np.argmin(self.bics[self.min_components:])+self.min_components
   if self.verbose:
     print('optbic:',self.opt_bics,flush=True)
-#  for C in range(int(self.opt_bics*1.5),self.n_components,1):
-#   if self.bics[C]<1e100:
-#      self.gm=self.gms[C]
-#      self.opt_bics=C
-#      print('increase bics to ',self.opt_bics)
-#      break
-
-#  quit()
 
   Y=self.gm.predict(X)
-#  pp.scatter(X[:,0],X[:,1],c=Y)
-#  pp.show()
 
   clusters=set(list(Y))
   Matrix=self.getMatrix(X,clusters)
@@ -503,14 +528,7 @@ class GMSDB():
   if self.verbose:
    print('unique matrix vals:',eps_np_mid,eps_np_mid.shape[0])
 
-#  for itt in range(10):
   best_cl_num,superlabels=self.getOptSuperclusters(Matrix,self.gm,X,Y,eps_np_mid)
-#   print('itt,best_cl_num,superclusters:',itt,best_cl_num,superlabels,flush=True)
-
-
-
-#    break
-
 
 
 
@@ -539,55 +557,3 @@ class GMSDB():
  def bic(self,X):
   return 0
 
-if __name__=='__main__':
- from mlxtend.plotting import plot_decision_regions
- from sklearn.datasets import make_blobs
- import matplotlib.pyplot as pp
-
- print('wait a couple minutes...')
-
-# test dataset
- NF=2
- X1=np.zeros((5000,2))
- y1=np.zeros(5000)
- r=np.random.rand(5000)*2.7
- phi=np.random.rand(5000)*6.28
- X1[:,0]=r*np.cos(phi)
- X1[:,1]=r*np.sin(phi)
- X1[:,0]*=10
- X1[:,1]+=0.07*X1[:,0]**2
- X2=np.zeros((5000,2))
- y2=np.zeros(5000)
- r=np.random.rand(5000)*2.7
- phi=np.random.rand(5000)*6.28
- X2[:,0]=r*np.cos(phi)
- X2[:,1]=r*np.sin(phi)
- X2[:,0]*=10
- X2[:,1]-=0.07*X2[:,0]**2-50
- X3=X1.copy()
- X3[:,0]+=65
- X=np.concatenate([X1,X2+30,X3],axis=0)
- Y=np.concatenate([y1,y2+1,y1+2],axis=0)
-
-
-
- NCM=35
- clf=GMSDB(n_components=NCM)
- clf.fit(X)
- print('sclusters:',clf.labels)
- y=clf.gm.predict(clf.ss.transform(X))
- Yp=clf.predict(X)
- pp.figure()
- fig,axs=pp.subplots(1,3,figsize=(13,4))
- axs[0].set_title('Source')
- axs[0].scatter(X[:,0],X[:,1],s=1,label='s')
- axs[1].set_title('GM BIC clusters')
- axs[1].scatter(X[:,0],X[:,1],c=y,s=1,label='gm')
- axs[2].set_title('superclusters')
- axs[2].scatter(X[:,0],X[:,1],c=Yp,s=1,label='sc')
- pp.savefig('res.png')
- pp.close()
-
- Yp=clf.predict_proba(X)
- print(Yp[:10,:])
- quit()
