@@ -36,3 +36,6 @@ pip install gmsdb==2.1
 Import:
 
 from gmsdb import GMSDB
+
+# Paper:
+https://arxiv.org/pdf/2309.02623v2.pdf
