@@ -9,10 +9,16 @@ python GMSDB.py
 Maximal number of gaussian components=50:
 
 ```python
+from sklearn.datasets import make_blobs
 from GMSDB import GMSDB
+
+S,N=1000,5
+X,Y=make_blobs(n_samples=S, n_features=2, centers=N, cluster_std=0.3, random_state=42)
+
 clf=GMSDB(n_components=50)
 clf.fit(X)
-=clf.predict(X)
+Y=clf.predict(X)
+print(clf.get_centroids())
 ```
 
 ## Complex use (with speed improvement for stages 1 and 3):
