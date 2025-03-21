@@ -7,6 +7,7 @@ foreach $f (@files)
  `ln -s $f data.py`;
 
  `python test_at_dataset.py 2>&1 1> log/$f-LLHDIST.log`;
+ `mv parabolic_fit.png out/parabolic_fit-$f-LLHDIST.png`;
  `mv res.png out/res-$f-LLHDIST.png`;
  `mv dec.png out/dec-$f-LLHDIST.png`;
  `mv bicfile.png out/bicfile-$f-LLHDIST.png`;

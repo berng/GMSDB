@@ -1,4 +1,4 @@
-## @package gmsdb_v2.1
+## @package gmsdb_v3.0
 # Made under GNU GPL v3.0
 # by Oleg I.Berngardt, 2023
 # This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as 
@@ -18,6 +18,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.cluster import dbscan
 from sklearn.mixture import GaussianMixture
 from sklearn.datasets import make_blobs
+from sklearn.linear_model import LinearRegression
 # import mahalanobis as mh_dist
 
 from mlxtend.plotting import plot_decision_regions
@@ -419,10 +420,12 @@ class GMSDB():
   return self.best_cluster_num,self.labels
 
 
- def fit(self,X0,show_closest=False,plot_decisions=False,max_bic_search_size=-1):
+ def fit(self,X0,show_closest=False,plot_decisions=False,max_bic_search_size=-1,parabolic_stop=-1):
   # show_closest=False - show 2 clusters closesest to given. Debug option
   # plot_decisions=False  - plot decision regions when fitting. Debug option
   # max_bic_search_size=-1 - if >0 use for bic search stage (stage1) shorter dataset to provide faster search. Debug option  
+  # parabolic_stop=-1 - Stop if some global minimum of BIC is passed (global minimum is found by parabolic approximation, minimum showd be at least 'parabolic_stop' ratio of current number of clusters). Used for some speed up BIC minimum search. Debug option. Recommended 0.7. When is set, allows using huge n_components 
+
   ss=StandardScaler()
   X=ss.fit_transform(X0)
   if max_bic_search_size>0:
@@ -435,6 +438,7 @@ class GMSDB():
    Xbic=X[idx[:max_bic_search_size]]
   else:
    Xbic=X
+#  print("fit BIC over: ",Xbic.shape)
   self.MH_dim=X0.shape[1]
   self.ss=ss
   best_bic=1e100
@@ -443,8 +447,9 @@ class GMSDB():
   mymax=self.n_components
   mystep=self.step_components
   for itt in range(10):
+## for parabolic autostop
+   bic_history=[]
    for C in range(mymin,mymax,mystep):
-
     if not C in self.gms:
      gm=GaussianMixture(n_components=C,max_iter=self.max_iter)
      gm.fit(Xbic)
@@ -455,9 +460,32 @@ class GMSDB():
     top_bic=[]
     for i in range(100):
      idx3=np.random.randint(0,Xbic.shape[0]-1,Xbic.shape[0])
-     top_bic.append(gm.bic(Xbic[idx3]))
+     bic_tmp=gm.bic(Xbic[idx3])
+     bic_history.append([C,bic_tmp])
+     top_bic.append(bic_tmp)
     top_bic=np.array(top_bic)
     self.bics[C]=top_bic.mean()+1.96*top_bic.std()
+
+### Autostop by parabolic minimum - limits upper number of probed BICs by some local minimum to the left from current position
+    if parabolic_stop>0:
+     # print ("parabolic stop test")
+     bic_history_np=np.array(bic_history)
+     bic_history_np2=np.concatenate([bic_history_np[:,0:1]**2,bic_history_np],axis=-1)
+     lr=LinearRegression()
+     lr.fit(bic_history_np2[:,:2],bic_history_np2[:,2])
+     ypred=lr.predict(bic_history_np2[:,:2])
+     if(np.unique(bic_history_np2[:,1]).shape[0]>4 and lr.coef_[0]>0 and (bic_history_np2[np.argmin(ypred),1]-mymin)<(C-mymin)*parabolic_stop):
+      if self.verbose:
+       pp.scatter(bic_history_np2[:,1],bic_history_np2[:,2],label='BIC')
+       pp.plot(bic_history_np2[:,1],ypred,label='parabolic fit')
+       pp.legend()
+       pp.xlabel('# of clusters')
+       pp.ylabel('BIC')
+       pp.savefig('parabolic_fit.png')
+      break
+### =========
+
+
 
 #    self.bics[C]=gm.bic(Xbic)
     self.gms[C]=gm
@@ -493,6 +521,9 @@ class GMSDB():
   self.opt_bics=np.argmin(self.bics[self.min_components:])+self.min_components
   if self.verbose:
     print('optbic:',self.opt_bics,flush=True)
+
+
+#  print("fit GMSDB over: ",X.shape)
 
   Y=self.gm.predict(X)
 
