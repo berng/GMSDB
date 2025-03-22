@@ -31,7 +31,7 @@ clf=GMSDB(n_components=50,verbose=True)
 # Install with pip
 You could install it from PyPI:
 
-pip install gmsdb==2.1
+pip install gmsdb==3.0
 
 Import:
 
